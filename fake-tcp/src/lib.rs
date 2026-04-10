@@ -502,35 +502,22 @@ impl Stack {
                                     .unwrap()
                                     .contains(&tcp_packet.get_destination())
                             {
-                                // SYN seen on listening socket
-                                if tcp_packet.get_sequence() == 0 {
-                                    let (sock, incoming) = Socket::new(
-                                        shared.clone(),
-                                        tun.clone(),
-                                        local_addr,
-                                        remote_addr,
-                                        Some(tcp_packet.get_sequence() + 1),
-                                        State::Idle,
-                                    );
-                                    assert!(shared
-                                        .tuples
-                                        .write()
-                                        .unwrap()
-                                        .insert(tuple, incoming)
-                                        .is_none());
-                                    tokio::spawn(sock.accept());
-                                } else {
-                                    trace!("Bad TCP SYN packet from {}, sending RST", remote_addr);
-                                    let buf = build_tcp_packet(
-                                        local_addr,
-                                        remote_addr,
-                                        0,
-                                        tcp_packet.get_sequence() + tcp_packet.payload().len() as u32 + 1, // +1 because of SYN flag set
-                                        tcp::TcpFlags::RST | tcp::TcpFlags::ACK,
-                                        None,
-                                    );
-                                    shared.tun[0].try_send(&buf).unwrap();
-                                }
+                                // SYN seen on listening socket — accept any ISN per RFC 793
+                                let (sock, incoming) = Socket::new(
+                                    shared.clone(),
+                                    tun.clone(),
+                                    local_addr,
+                                    remote_addr,
+                                    Some(tcp_packet.get_sequence().wrapping_add(1)),
+                                    State::Idle,
+                                );
+                                assert!(shared
+                                    .tuples
+                                    .write()
+                                    .unwrap()
+                                    .insert(tuple, incoming)
+                                    .is_none());
+                                tokio::spawn(sock.accept());
                             } else if (tcp_packet.get_flags() & tcp::TcpFlags::RST) == 0 {
                                 info!("Unknown TCP packet from {}, sending RST", remote_addr);
                                 let buf = build_tcp_packet(
